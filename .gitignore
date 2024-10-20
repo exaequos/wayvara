@@ -20,6 +20,8 @@
 *.wasm
 *.o
 
+*~
+
 build
 projects
 etc
