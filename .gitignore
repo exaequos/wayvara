@@ -15,3 +15,13 @@
 *.rom.sym
 
 *.[o0125678vqki]
+
+*.js
+*.wasm
+*.o
+
+build
+projects
+etc
+mkfile
+*.rom
