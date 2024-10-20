@@ -8,8 +8,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <emscripten.h>
-
 #ifdef _WIN32
 #include <libiberty/libiberty.h>
 #define realpath(s, dummy) lrealpath(s)
@@ -178,16 +176,14 @@ file_check_sandbox(UxnFile *c)
 static Uint16
 file_init(UxnFile *c, char *filename, size_t max_len, int override_sandbox)
 {
-  emscripten_log(EM_LOG_CONSOLE, "file: current=%s , filename=%s", c->current_filename, filename);
-  
 	char *p = c->current_filename;
 	size_t len = sizeof(c->current_filename);
 	reset(c);
 	if(len > max_len) len = max_len;
 	while(len) {
 		if((*p++ = *filename++) == '\0') {
-		  //if(!override_sandbox) /* override sandbox for loading roms */
-		  //		file_check_sandbox(c);
+			if(!override_sandbox) /* override sandbox for loading roms */
+				file_check_sandbox(c);
 			return 0;
 		}
 		len--;

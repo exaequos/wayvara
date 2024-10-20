@@ -29,6 +29,3 @@ void screen_redraw(Uxn *u);
 
 Uint8 screen_dei(Uxn *u, Uint8 addr);
 void screen_deo(Uint8 *ram, Uint8 *d, Uint8 port);
-
-//BB
-void screen_init();

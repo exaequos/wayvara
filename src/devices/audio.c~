@@ -37,8 +37,6 @@ typedef struct Envelope {
 	float d;
 	float s;
 	float r;
-        //BB
-        float release; // duration in ms;
 	float vol;
 	EnvStage stage;
 } Envelope;
@@ -139,8 +137,6 @@ note_on(AudioChannel *channel, float duration, Uint8 *data, Uint16 len, Uint8 vo
 	sample.env.d = decay * 64.0f;
 	sample.env.s = sustain / 16.0f;
 	sample.env.r = release * 64.0f;
-	//BB
-	sample.env.release = (1000.0 * release) / 15.0f;
 	if(loop) {
 		sample.loop = len;
 	} else {
@@ -178,13 +174,13 @@ env_advance(Envelope *env)
 	} break;
 	case ENV_DECAY: {
 		env->vol -= env->d;
-		if(env->vol <= 0.5f /*env->s*/ || env->d <= 0) {  //BB
+		if(env->vol <= env->s || env->d <= 0) {
 			env->stage = ENV_SUSTAIN;
-			//env->vol = 0.5f /*env->s*/;  //BB
+			env->vol = env->s;
 		}
 	} break;
 	case ENV_SUSTAIN: {
-	  //env->vol = 0.5f /*env->s*/; //BB
+		env->vol = env->s;
 	} break;
 	case ENV_RELEASE: {
 		if(env->vol <= 0 || env->r <= 0) {
@@ -250,7 +246,6 @@ next_sample(Sample *sample)
 
 	sample->pos += sample->inc;
 	env_advance(&sample->env);
-	
 	return next;
 }
 
@@ -269,12 +264,6 @@ audio_handler(void *ctx, Uint8 *out_stream, int len)
 			uxn_eval(u, PEEK2(addr));
 		}
 		channel[n].duration -= SOUND_TIMER;
-
-		//BB
-		if ( (channel[n].sample.env.stage == ENV_SUSTAIN) &&  (channel[n].duration <= channel[n].sample.env.release) ) {
-
-		  channel[n].sample.env.stage = ENV_RELEASE;
-		}
 
 		int x = 0;
 		if(channel[n].xfade) {
@@ -320,33 +309,27 @@ calc_duration(Uint16 len, Uint8 pitch)
 void
 audio_start(int idx, Uint8 *d, Uxn *u)
 {
-  //BB
-  //Uint16 dur = PEEK2(d + 0x5); 
+  emscripten_log(EM_LOG_CONSOLE, "--> audio_start");
+  
+	Uint16 dur = PEEK2(d + 0x5);
 	Uint8 off = d[0xf] == 0x00;
 	Uint16 len = PEEK2(d + 0xa);
 	Uint8 pitch = d[0xf] & 0x7f;
 	if(pitch < 20) {
 		pitch = 20;
 	}
-
-	Uint16 adsr = PEEK2(d + 0x8);
-	Uint8 attack = (adsr >> 12) & 0xF;
-	Uint8 decay = (adsr >> 8) & 0xF;
-	Uint8 sustain = (adsr >> 4) & 0xF;
-	Uint8 release = (adsr >> 0) & 0xF;
-
-	Uint16 dur = attack + decay + sustain + release;
-		
-	float duration = dur > 0 ? (1000.0f * dur)/ 15.0f : calc_duration(len, pitch); // duration in ms
-
-	//emscripten_log(EM_LOG_CONSOLE, "--> audio_start: idx=%d dur=%f off=%d", idx, duration, off);
+	float duration = dur > 0 ? dur : calc_duration(len, pitch);
 
 	if(!off) {
 		Uint16 addr = PEEK2(d + 0xc);
 		Uint8 *data = &u->ram[addr];
 		Uint8 volume = d[0xe];
 		bool loop = !(d[0xf] & 0x80);
-		
+		Uint16 adsr = PEEK2(d + 0x8);
+		Uint8 attack = (adsr >> 12) & 0xF;
+		Uint8 decay = (adsr >> 8) & 0xF;
+		Uint8 sustain = (adsr >> 4) & 0xF;
+		Uint8 release = (adsr >> 0) & 0xF;
 		note_on(&channel[idx], duration, data, len, volume, attack, decay, sustain, release, pitch, loop);
 	} else {
 		note_off(&channel[idx], duration);
@@ -393,7 +376,7 @@ static void OnSendAudioDataToDevice(ma_device *pDevice, void *pFramesOut, const 
   
   ma_mutex_lock(&lock);
 
-  audio_handler((Uxn *)(pDevice->pUserData), pFramesOut, frameCount * 2 * 2);
+  audio_handler((Uxn *)(pDevice->pUserData), pFramesOut, frameCount);
   
   ma_mutex_unlock(&lock);
 }
@@ -422,8 +405,7 @@ int audio_init(Uxn *u) {
     config.capture.pDeviceID = NULL;  // NULL for the default capture AUDIO.System.device.
     config.capture.format = ma_format_s16;
     config.capture.channels = 1;
-    config.sampleRate = 44100; //SAMPLE_FREQUENCY
-    config.periodSizeInFrames = 256; //AUDIO_BUFSIZE
+    config.sampleRate = 44100;
     config.dataCallback = OnSendAudioDataToDevice;
     config.pUserData = u;
 

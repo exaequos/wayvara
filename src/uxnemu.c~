@@ -45,10 +45,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include <sys/epoll.h>
-
-#include <wayland-client-core.h>
-
 /*
 Copyright (c) 2021-2023 Devine Lu Linvega, Andrew Alderwick
 
@@ -65,9 +61,6 @@ WITH REGARD TO THIS SOFTWARE.
 #define WIDTH 64 * 8
 #define HEIGHT 40 * 8
 #define TIMEOUT_MS 334
-
-uint32_t zoom = 1;
-int end_of_app = 0;
 
 //BB
 #if 0
@@ -87,17 +80,15 @@ static int audio_id;
 /* devices */
 
 static int window_created, fullscreen, borderless;
-static /*Uint32*/uint32_t stdin_event, audio0_event;
+static /*Uint32*/uint32_t stdin_event, audio0_event, zoom = 1;
 static /*Uint64*/uint64_t exec_deadline, deadline_interval, ms_interval;
 
-#if 0
 static int
 clamp(int v, int min, int max)
 {
 	return v < min ? min : v > max ? max
 								   : v;
 }
-#endif
 
 static void
 audio_deo(int instance, Uint8 *d, Uint8 port, Uxn *u)
@@ -146,8 +137,6 @@ emu_deo(Uxn *u, Uint8 addr, Uint8 value)
 	case 0x60: audio_deo(3, &u->dev[d], p, u); break;
 	case 0xa0: file_deo(0, u->ram, &u->dev[d], p); break;
 	case 0xb0: file_deo(1, u->ram, &u->dev[d], p); break;
-	default:
-	  //emscripten_log(EM_LOG_CONSOLE, "emu_deo: d=%x", d);
 	}
 }
 
@@ -183,7 +172,7 @@ stdin_handler(void *p)
 static void
 set_window_size(/*SDL_Window*/void *window, int w, int h)
 {
-  //emscripten_log(EM_LOG_CONSOLE, "--> set_window_size %d %d zoom=%d", w, h, zoom);
+  emscripten_log(EM_LOG_CONSOLE, "--> set_window_size %d %d", w, h);
   
   //BB
 #if 0
@@ -198,7 +187,7 @@ set_window_size(/*SDL_Window*/void *window, int w, int h)
 static void
 set_zoom(Uint8 z, int win)
 {
-  //emscripten_log(EM_LOG_CONSOLE, "--> set_zoom z=%d win=%d", z, win);
+  emscripten_log(EM_LOG_CONSOLE, "--> set_zoom z=%d win=%d", z, win);
   
 	if(z < 1) return;
 	if(win)
@@ -246,7 +235,7 @@ set_debugger(Uxn *u, int value)
 int
 emu_resize(int width, int height)
 {
-  //emscripten_log(EM_LOG_CONSOLE, "--> emu_resize %d %d", width, height);
+  emscripten_log(EM_LOG_CONSOLE, "--> emu_resize %d %d", width, height);
   
 	if(!window_created)
 		return 0;
@@ -323,23 +312,6 @@ emu_init(Uxn *u)
 	screen_resize(WIDTH, HEIGHT);
 	SDL_PauseAudioDevice(audio_id, 1);
 #endif
-
-	//hide cursor
-	
-	EM_ASM({
-
-	    var styles = `
-	      canvas { 
-	        cursor: none;
-	    }
-	    `;
-
-	    var styleSheet = document.createElement("style");
-	      styleSheet.innerText = styles;
-	      document.head.appendChild(styleSheet);
-
-	  });
-	
 	
 	//BB
 	screen_init();
@@ -532,8 +504,6 @@ handle_events(Uxn *u)
 
 #endif
 
-extern struct wl_display *display;
-
 static int
 emu_run(Uxn *u, char *rom)
 {
@@ -564,18 +534,9 @@ emu_run(Uxn *u, char *rom)
 #endif
 
 	emu_resize(uxn_screen.width, uxn_screen.height);
-
-	int display_fd = wl_display_get_fd(display);
-
-	int fd = epoll_create1(EPOLL_CLOEXEC);
-
-	struct epoll_event ee[16];
-	
-	ee[0].events = EPOLLIN;
-	epoll_ctl(fd, EPOLL_CTL_ADD, display_fd, &ee[0]);
 	
 	/* game loop */
-	while (!end_of_app) {
+	for(;;) {
 	  
 	        uint16_t/*Uint16*/ screen_vector;
 		//Uint64 now = SDL_GetPerformanceCounter();
@@ -585,17 +546,11 @@ emu_run(Uxn *u, char *rom)
 		if(u->dev[0x0f])
 			return system_error("Run", "Ended.");
 		exec_deadline = now + deadline_interval;
-
 		//BB
 		//if(!handle_events(u))
 		//	return 0;
-
 		//BB
-		//if(uxn_screen.x2)
-		  emu_redraw(u);
-		
-		#if 0
-		
+		emu_redraw(u);
 		screen_vector = PEEK2(vector_addr);
 		if(/*now >= next_refresh*/1) {
 		  //now = SDL_GetPerformanceCounter();
@@ -604,7 +559,6 @@ emu_run(Uxn *u, char *rom)
 			if(uxn_screen.x2)
 				emu_redraw(u);
 		}
-		#endif
 //BB
 #if 0
 		if(screen_vector || uxn_screen.x2) {
@@ -614,11 +568,7 @@ emu_run(Uxn *u, char *rom)
 		  SDL_WaitEvent(NULL);
 		}
 #endif
-		int n = epoll_wait(fd, ee, 16, -1);
-
-		//emscripten_log(EM_LOG_CONSOLE, "uxnemu: %d event received", n);
-		
-		wl_display_dispatch(display);
+		usleep(30000);
 	}
 }
 
@@ -657,13 +607,11 @@ main(int argc, char **argv)
 	/* flags */
 	if(argc > 1 && argv[i][0] == '-') {
 		if(!strcmp(argv[i], "-v"))
-			return system_error("Wayvara - Varvara Emulator(GUI)", "27 May 2024.");
+			return system_error("Uxnemu - Varvara Emulator(GUI)", "18 Mar 2024.");
 		else if(!strcmp(argv[i], "-2x"))
 			set_zoom(2, 0);
 		else if(!strcmp(argv[i], "-3x"))
 			set_zoom(3, 0);
-		else if(!strcmp(argv[i], "-4x"))
-			set_zoom(4, 0);
 		else if(strcmp(argv[i], "-f") == 0)
 			set_fullscreen(1, 0);
 		i++;
@@ -672,7 +620,7 @@ main(int argc, char **argv)
 	rom = i == argc ? "boot.rom" : argv[i++];
 	ram = (Uint8 *)calloc(0x10000 * RAM_PAGES, sizeof(Uint8));
 	if(!system_init(&u, ram, rom) || !system_init(&u_audio, ram, rom))
-		return system_error("usage:", "wayvara [-v | -f | -2x | -3x | -4x] file.rom [args...]");
+		return system_error("usage:", "uxnemu [-v | -f | -2x | -3x] file.rom [args...]");
 	if(!emu_init(&u_audio))
 		return system_error("Init", "Failed to initialize varvara.");
 	/* loop */
